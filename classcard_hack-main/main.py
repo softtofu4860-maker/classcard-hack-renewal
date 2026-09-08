@@ -19,6 +19,93 @@ from learning_types import (
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
+
+def _visible_text(element):
+    """Selenium의 text/innerText/textContent를 순서대로 사용해 표시 문자열을 얻는다."""
+    if element is None:
+        return ""
+
+    for attr in (None, "innerText", "textContent"):
+        try:
+            if attr is None:
+                value = element.text
+            else:
+                value = element.get_attribute(attr)
+            if value:
+                value = " ".join(value.split())
+                if value:
+                    return value
+        except Exception:
+            continue
+    return ""
+
+
+def _extract_class_list(driver, wait):
+    """로그인 후 현재 페이지에서 실제 클래스 목록을 찾아 반환한다."""
+    selectors = [
+        (By.CSS_SELECTOR, ".left-class-list a[href*='/ClassMain/']"),
+        (By.CSS_SELECTOR, "a[href*='/ClassMain/']"),
+        (By.XPATH, "//a[contains(@href, '/ClassMain/')]")
+    ]
+
+    elements = []
+    for by, selector in selectors:
+        try:
+            wait.until(EC.presence_of_all_elements_located((by, selector)))
+            elements = driver.find_elements(by, selector)
+            if elements:
+                break
+        except Exception:
+            continue
+
+    class_dict = {}
+    seen_ids = set()
+
+    for item in elements:
+        try:
+            href = (item.get_attribute("href") or "").strip()
+            if "/ClassMain/" not in href:
+                continue
+
+            class_id = href.split("/ClassMain/", 1)[1].split("?", 1)[0].split("/", 1)[0].strip()
+            if not class_id or class_id == "joinClass" or class_id in seen_ids:
+                continue
+
+            class_name = _visible_text(item)
+
+            # 링크 자체에 텍스트가 없고 자식 요소에만 이름이 있는 경우를 위한 보조 탐색
+            if not class_name:
+                for child_selector in (".class-name", ".class-title", ".name", "span", "div"):
+                    try:
+                        child = item.find_element(By.CSS_SELECTOR, child_selector)
+                        class_name = _visible_text(child)
+                        if class_name:
+                            break
+                    except Exception:
+                        continue
+
+            # 그래도 이름을 못 읽으면 ID를 표시하지 않고 실제 DOM의 aria-label/title을 확인
+            if not class_name:
+                class_name = (
+                    item.get_attribute("aria-label")
+                    or item.get_attribute("title")
+                    or ""
+                ).strip()
+
+            if not class_name:
+                class_name = f"클래스 ({class_id})"
+
+            seen_ids.add(class_id)
+            class_dict[len(class_dict)] = {
+                "class_name": class_name,
+                "class_id": class_id,
+            }
+        except Exception:
+            continue
+
+    return class_dict
+
+
 def main():
     account = get_id()
 
@@ -34,7 +121,7 @@ def main():
         driver = webdriver.Chrome(options=chrome_options)
 
     driver.implicitly_wait(3)
-    wait = WebDriverWait(driver, 10)
+    wait = WebDriverWait(driver, 12)
 
     try:
         # 1. 로그인
@@ -53,31 +140,15 @@ def main():
         except Exception:
             tag_pw.submit()
 
-        time.sleep(2)
-
-        # 2. 클래스 선택
-        class_elements = driver.find_elements(By.XPATH, "//a[contains(@href, '/ClassMain/')]")
-        class_dict = {}
-        valid_idx = 0
-        seen_ids = set()
-
-        for item in class_elements:
-            try:
-                href = item.get_attribute("href") or ""
-                if "/ClassMain/" not in href:
-                    continue
-                class_id = href.split("/ClassMain/")[1].split("?")[0].split("/")[0]
-                class_name = item.text.strip() or item.get_attribute("innerText").strip()
-                if class_id and class_id not in seen_ids and class_id != "joinClass":
-                    seen_ids.add(class_id)
-                    class_dict[valid_idx] = {"class_name": class_name, "class_id": class_id}
-                    valid_idx += 1
-            except Exception:
-                continue
+        # 로그인 완료 후 클래스 링크가 나타날 때까지 기다린다.
+        time.sleep(1)
+        class_dict = _extract_class_list(driver, wait)
 
         if not class_dict:
-            print("\n[오류] 가입된 클래스 목록을 찾을 수 없습니다. 아이디/비밀번호를 확인해 주세요.")
+            print("\n[오류] 가입된 클래스 목록을 찾을 수 없습니다. 로그인 상태와 클래스 목록을 확인해 주세요.")
             return
+
+        print(f"[확인] 클래스 {len(class_dict)}개를 찾았습니다.")
 
         choice_class_val = choice_class(class_dict)
         target_class_id = class_dict[choice_class_val]["class_id"]
@@ -96,7 +167,7 @@ def main():
                 set_id = set_item.get_attribute("data-idx")
                 href = set_item.get_attribute("href") or ""
                 if not set_id and "/set/" in href:
-                    set_id = href.split("/set/")[1].split("/")[0].split("?")[0]
+                    set_id = href.split("/set/", 1)[1].split("/", 1)[0].split("?", 1)[0]
                 if not set_id or set_id in seen_sets:
                     continue
                 seen_sets.add(set_id)
@@ -106,7 +177,11 @@ def main():
                 except Exception:
                     card_num = ""
 
-                title = set_item.text.replace(card_num, "").strip() or f"세트 {set_id}"
+                title = _visible_text(set_item)
+                if card_num and card_num in title:
+                    title = title.replace(card_num, "", 1).strip()
+                title = title or f"세트 {set_id}"
+
                 sets_dict[idx] = {"card_num": card_num, "title": title, "set_id": set_id}
                 idx += 1
             except Exception:
@@ -148,6 +223,7 @@ def main():
 
     finally:
         driver.quit()
+
 
 if __name__ == "__main__":
     main()
