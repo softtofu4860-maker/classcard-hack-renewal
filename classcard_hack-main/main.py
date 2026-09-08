@@ -73,7 +73,6 @@ def _extract_class_list(driver, wait):
 
             class_name = _visible_text(item)
 
-            # 링크 자체에 텍스트가 없고 자식 요소에만 이름이 있는 경우를 위한 보조 탐색
             if not class_name:
                 for child_selector in (".class-name", ".class-title", ".name", "span", "div"):
                     try:
@@ -84,7 +83,6 @@ def _extract_class_list(driver, wait):
                     except Exception:
                         continue
 
-            # 그래도 이름을 못 읽으면 ID를 표시하지 않고 실제 DOM의 aria-label/title을 확인
             if not class_name:
                 class_name = (
                     item.get_attribute("aria-label")
@@ -124,7 +122,6 @@ def main():
     wait = WebDriverWait(driver, 12)
 
     try:
-        # 1. 로그인
         print("\n[진행] 클래스카드 로그인 페이지 접속...")
         driver.get("https://www.classcard.net/Login")
 
@@ -140,7 +137,6 @@ def main():
         except Exception:
             tag_pw.submit()
 
-        # 로그인 완료 후 클래스 링크가 나타날 때까지 기다린다.
         time.sleep(1)
         class_dict = _extract_class_list(driver, wait)
 
@@ -156,7 +152,6 @@ def main():
         driver.get(f"https://www.classcard.net/ClassMain/{target_class_id}")
         time.sleep(2)
 
-        # 3. 세트 선택
         set_elements = driver.find_elements(By.XPATH, "//a[contains(@href, '/set/') or @data-idx]")
         sets_dict = {}
         idx = 0
@@ -194,10 +189,8 @@ def main():
         choice_set_val = choice_set(sets_dict)
         current_set_id = sets_dict[choice_set_val]["set_id"]
 
-        # 세트 페이지 진입
         driver.get(f"https://www.classcard.net/set/{current_set_id}/{target_class_id}")
 
-        # 4. 단어 추출
         word_d = word_get(driver)
         da_e, da_k, da_kn, da_kyn, da_ked, da_sd = word_d
         num_d = len(da_e)
@@ -206,17 +199,24 @@ def main():
             print("[오류] 단어 데이터를 인식하지 못했습니다. 프로그램이 종료됩니다.")
             return
 
-        # 5. 학습 진행
         ch_d = chd_wh()
 
         if ch_d == 1:
-            memorization.run_memorization(driver, num_d)
+            result = memorization.run_memorization(driver, num_d)
         elif ch_d == 2:
-            recall.run_recall(driver, num_d, da_e, da_k)
+            result = recall.run_recall(driver, num_d, da_e, da_k)
         elif ch_d == 3:
-            spelling.run_spelling(driver, num_d, da_e, da_k)
+            result = spelling.run_spelling(driver, num_d, da_e, da_k)
         elif ch_d == 4:
-            test.run_test(driver, num_d, da_e, da_k)
+            result = test.run_test(driver, num_d, da_e, da_k)
+        else:
+            result = False
+
+        if result is False:
+            print("\n[중단] 학습 화면 진입 또는 카드 처리가 완료되지 않았습니다.")
+            print("[진단] 브라우저의 현재 화면을 확인한 뒤 위의 오류 내용을 확인해 주세요.")
+            input("Enter 키를 누르면 브라우저를 종료합니다...")
+            return
 
         print("\n[완료] 학습 작업이 마무리되었습니다.")
         input("Enter 키를 누르면 브라우저를 종료합니다...")
