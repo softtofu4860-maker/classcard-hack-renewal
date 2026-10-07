@@ -1,13 +1,13 @@
 import time
 import warnings
+import sys
 
+import selenium
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
 
 from utility import chd_wh, get_id, word_get, choice_class, choice_set
 from learning_types import (
@@ -107,16 +107,39 @@ def _extract_class_list(driver, wait):
 def main():
     account = get_id()
 
+    # Chrome 154 / Python 3.14 환경에서는 오래된 Selenium 또는
+    # webdriver-manager가 잘못된 ChromeDriver를 잡아 SessionNotCreatedException이
+    # 발생할 수 있다. Selenium Manager 하나만 사용해 현재 Chrome과 맞는
+    # 드라이버를 자동으로 선택한다.
+    try:
+        version_parts = tuple(int(part) for part in selenium.__version__.split(".")[:3])
+    except Exception:
+        version_parts = (0, 0, 0)
+
+    print(f"[확인] Python {sys.version.split()[0]} / Selenium {selenium.__version__}")
+
+    if version_parts < (4, 49, 0):
+        print("\n[오류] 현재 Selenium 버전이 너무 오래되었습니다.")
+        print("[해결] 아래 명령으로 Selenium을 업데이트한 뒤 프로그램을 다시 실행해 주세요.")
+        print(f'       "{sys.executable}" -m pip install -U "selenium>=4.49.0,<5"')
+        return
+
     chrome_options = Options()
-    chrome_options.add_experimental_option("excludeSwitches", ["enable-logging", "enable-automation"])
-    chrome_options.add_experimental_option("useAutomationExtension", False)
-    chrome_options.add_argument('--disable-blink-features=AutomationControlled')
     chrome_options.add_argument("--start-maximized")
+    chrome_options.add_argument("--remote-debugging-pipe")
 
     try:
-        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    except Exception:
+        # Selenium Manager가 설치된 Chrome 버전에 맞는 ChromeDriver를 자동 관리한다.
         driver = webdriver.Chrome(options=chrome_options)
+    except Exception as exc:
+        print("\n[오류] Chrome 브라우저 세션을 만들지 못했습니다.")
+        print(f"[진단] {type(exc).__name__}: {exc}")
+        print("\n[확인할 것]")
+        print("1) 열려 있는 Chrome 창을 모두 종료한 뒤 다시 실행")
+        print("2) Chrome을 최신 버전으로 업데이트")
+        print(f'3) "{sys.executable}" -m pip install -U "selenium>=4.49.0,<5"')
+        print("4) 그래도 실패하면 위 [진단] 첫 부분을 캡처해서 보내 주세요.")
+        return
 
     driver.implicitly_wait(3)
     wait = WebDriverWait(driver, 12)
